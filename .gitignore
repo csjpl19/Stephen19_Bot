@@ -1,0 +1,10 @@
+# Configuration locale et secrets (y compris .env.example qui contient un token)
+.env
+.env.*
+*.env
+.env~
+
+# Environnement Python et fichiers generes
+.venv/
+__pycache__/
+*.pyc
