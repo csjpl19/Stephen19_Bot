@@ -6,7 +6,7 @@ from pathlib import Path
 
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
-from core import MAX_AUDIO_BYTES, MAX_SOURCE_BYTES, UserError, check_info, parse_request, youtube_url
+from core import MAX_AUDIO_BYTES, MAX_SOURCE_BYTES, UserError, check_info, parse_media_request, parse_request, youtube_url
 
 
 class QuietLogger:
@@ -32,10 +32,10 @@ def resolve_video(request: str) -> str:
     return youtube_url(f"https://www.youtube.com/watch?v={entries[0].get('id', '')}")
 
 
-def run_ffmpeg(arguments: list[str]) -> None:
+def run_ffmpeg(arguments: list[str], timeout: int = 60) -> None:
     subprocess.run(
         ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y", *arguments],
-        check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=60)
+        check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=timeout)
 
 
 def make_jpeg(source: Path, destination: Path, size: int) -> bool:
@@ -138,14 +138,23 @@ def download(request: str, folder: Path) -> dict:
 
 def main():
     folder = Path(sys.argv[2]).resolve()
+    kind = "audio"
     try:
-        result = download(sys.argv[1], folder)
+        kind, request = parse_media_request(sys.argv[1])
+        if kind == "video":
+            from reels import download_reel
+            result = download_reel(request, folder)
+        else:
+            result = download(request, folder)
     except UserError as exc:
         result = {"ok": False, "error": str(exc)}
     except DownloadError:
-        result = {"ok": False, "error": "YouTube refuse le téléchargement ou la vidéo est inaccessible. Essaie un autre lien. Si cela arrive pour tous les liens, mets yt-dlp à jour et vérifie Deno et FFmpeg."}
+        result = {"ok": False, "error": (
+            "La plateforme refuse le téléchargement ou cette vidéo est inaccessible. Utilise un lien public direct. Les contenus privés, supprimés ou nécessitant une connexion ne sont pas pris en charge."
+            if kind == "video" else
+            "YouTube refuse le téléchargement ou la vidéo est inaccessible. Essaie un autre lien. Si cela arrive pour tous les liens, mets yt-dlp à jour et vérifie Deno et FFmpeg.")}
     except Exception as exc:
-        result = {"ok": False, "error": "Échec du traitement audio. Vérifie FFmpeg et les dépendances.", "error_type": type(exc).__name__}
+        result = {"ok": False, "error": "Échec du traitement du fichier. Vérifie FFmpeg et les dépendances.", "error_type": type(exc).__name__}
     (folder / "result.json").write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
 
 

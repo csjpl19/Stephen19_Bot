@@ -4,6 +4,7 @@ from urllib.parse import parse_qs, urlsplit
 
 MAX_DURATION = 20 * 60
 MAX_AUDIO_BYTES = 49_000_000
+MAX_VIDEO_BYTES = 49_000_000
 MAX_SOURCE_BYTES = 80_000_000
 MAX_JOBS = 2
 JOB_TIMEOUT = 300
@@ -23,6 +24,76 @@ def audio_filename(title: str) -> str:
     if re.fullmatch(r"(?i)(CON|PRN|AUX|NUL|COM[1-9¹²³]|LPT[1-9¹²³])", name.split(".")[0]):
         name = "_" + name
     return name + ".mp3"
+
+
+SOCIAL_HOSTS = {
+    "instagram.com": "Instagram", "www.instagram.com": "Instagram",
+    "tiktok.com": "TikTok", "www.tiktok.com": "TikTok", "m.tiktok.com": "TikTok",
+    "vm.tiktok.com": "TikTok", "vt.tiktok.com": "TikTok",
+    "facebook.com": "Facebook", "www.facebook.com": "Facebook",
+    "m.facebook.com": "Facebook", "web.facebook.com": "Facebook",
+    "fb.watch": "Facebook", "www.fb.watch": "Facebook",
+}
+
+
+def social_url(text: str) -> tuple[str, str, bool]:
+    """Valide un lien vidéo social et indique s'il faut résoudre un lien de partage."""
+    value = text.strip()
+    error = "Envoie le lien d'une vidéo Instagram, TikTok ou Facebook, pas d'un profil, d'un album ou d'un direct."
+    try:
+        if len(value) > 2048 or re.search(r"[\s\x00-\x1f\x7f\\]", value):
+            raise ValueError
+        if not re.match(r"(?i)^https?://", value):
+            value = "https://" + value
+        url = urlsplit(value)
+        if url.scheme not in {"http", "https"} or url.username is not None or url.password is not None or url.port:
+            raise ValueError
+        platform = SOCIAL_HOSTS.get(url.hostname)
+        path = url.path.rstrip("/")
+        if platform == "Instagram":
+            match = re.fullmatch(r"/(?:(?!share/)[\w.]+/)?(reels?|p|tv)/([A-Za-z0-9_-]+)", path)
+            if match and match[2] != "audio":
+                return f"https://www.instagram.com/{match[1]}/{match[2]}/", platform, False
+            if re.fullmatch(r"/share/(?:reel|[pv])/([A-Za-z0-9_-]+)", path):
+                return f"https://www.instagram.com{path}/", platform, True
+        elif platform == "TikTok":
+            if url.hostname in {"vm.tiktok.com", "vt.tiktok.com"} and re.fullmatch(r"/[A-Za-z0-9]+", path):
+                return f"https://{url.hostname}{path}/", platform, True
+            if re.fullmatch(r"/t/[A-Za-z0-9]+", path):
+                return f"https://www.tiktok.com{path}/", platform, True
+            if re.fullmatch(r"/@[\w.-]+/video/[0-9]+", path):
+                return f"https://www.tiktok.com{path}", platform, False
+        elif platform == "Facebook":
+            if url.hostname in {"fb.watch", "www.fb.watch"} and re.fullmatch(r"/[A-Za-z0-9_-]+", path):
+                return f"https://fb.watch{path}/", platform, True
+            if re.fullmatch(r"/share/[rv]/[A-Za-z0-9]+", path):
+                return f"https://www.facebook.com{path}/", platform, True
+            match = re.fullmatch(r"/reel/([0-9]+)", path)
+            if match:
+                return f"https://www.facebook.com/reel/{match[1]}/", platform, False
+            match = re.fullmatch(r"/(?:[\w.-]+/)?videos/(?:[^/]+/)?([0-9]+)", path)
+            video_id = match[1] if match else parse_qs(url.query).get("v", [""])[0]
+            if (match or path in {"/watch", "/video.php"}) and re.fullmatch(r"[0-9]+", video_id):
+                return f"https://www.facebook.com/watch/?v={video_id}", platform, False
+        raise ValueError
+    except ValueError:
+        raise UserError(error) from None
+
+
+def parse_media_request(text: str, mode: str = "auto") -> tuple[str, str]:
+    value = text.strip()
+    # Seuls les liens de plateformes explicitement prises en charge deviennent des vidéos.
+    try:
+        candidate = value if "://" in value else "https://" + value
+        is_social = urlsplit(candidate).hostname in SOCIAL_HOSTS
+    except ValueError:
+        is_social = False
+    if mode == "video" or is_social:
+        url, _, _ = social_url(value)
+        if mode == "audio":
+            raise UserError("Pour cette vidéo, envoie simplement le lien ou utilise /video. /audio accepte un titre ou un lien YouTube.")
+        return "video", url
+    return "audio", parse_request(value)
 
 
 def parse_request(text: str) -> str:

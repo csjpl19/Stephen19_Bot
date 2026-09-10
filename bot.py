@@ -1,4 +1,4 @@
-"""Bot Telegram : titre ou lien YouTube → MP3. Lancer : python bot.py."""
+"""Bot Telegram : musique YouTube et vidéos sociales. Lancer : python bot.py."""
 import asyncio
 import json
 import logging
@@ -15,7 +15,7 @@ from telegram import Update
 from telegram.error import TelegramError
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
-from core import JOB_TIMEOUT, MAX_AUDIO_BYTES, MAX_JOBS, UserError, audio_filename, parse_request
+from core import JOB_TIMEOUT, MAX_AUDIO_BYTES, MAX_VIDEO_BYTES, MAX_JOBS, UserError, audio_filename, parse_media_request
 
 ROOT = Path(__file__).resolve().parent
 load_dotenv(ROOT / ".env")
@@ -23,15 +23,28 @@ ACTIVE_USERS: set[int] = set()
 ALLOWED_USERS: set[int] = set()
 LOGGER = logging.getLogger("musicbot")
 HELP = (
-    "Écris le titre d'une chanson, idéalement avec l'artiste : je la cherche sur YouTube et je t'envoie le MP3. Un lien YouTube fonctionne aussi.\n\n"
-    "La recherche sélectionne automatiquement le premier résultat YouTube.\n\n"
-    "• Une vidéo à la fois, de 20 minutes maximum.\n"
-    "• MP3 à 192 kbit/s, limité à 49 Mo.\n"
-    "• Pas de playlists ni de directs.\n"
-    "• Utilise des contenus dont le téléchargement est autorisé.\n\n"
-    "/audio <titre ou lien> : télécharger l'audio\n"
-    "/id : afficher ton identifiant Telegram\n"
-    "/aide : afficher cette aide"
+    "Bienvenue — votre assistant musique et vidéo.\n\n"
+    "MUSIQUE\n"
+    "Envoyez le titre d'un morceau avec son artiste, ou un lien YouTube. "
+    "Vous recevrez un MP3 à 192 kbit/s, nommé d'après le morceau, avec son titre, "
+    "son artiste et sa pochette lorsqu'elle est disponible. "
+    "Une recherche par titre sélectionne le premier résultat YouTube.\n\n"
+    "REELS ET VIDÉOS\n"
+    "Envoyez un lien public Instagram, TikTok ou Facebook. "
+    "Vous recevrez la vidéo en MP4, lisible et téléchargeable directement dans Telegram, "
+    "sans carte de lien de la plateforme dans la réponse. "
+    "Les formats signalés avec filigrane sont écartés ; un logo déjà incrusté dans l'image peut rester.\n\n"
+    "UTILISATION\n"
+    "• Un titre ou un lien suffit : le format est choisi automatiquement.\n"
+    "• /audio <titre ou lien YouTube> : recevoir un MP3.\n"
+    "• /video <lien Instagram, TikTok ou Facebook> : recevoir une vidéo.\n"
+    "• /aide : retrouver ces instructions.\n"
+    "• /id : afficher votre identifiant Telegram.\n\n"
+    "LIMITES\n"
+    "Une demande à la fois par personne, 20 minutes et 49 Mo maximum par fichier. "
+    "Les vidéos peuvent être compressées. Les playlists, albums, directs et contenus privés "
+    "ne sont pas pris en charge. La disponibilité dépend de chaque plateforme.\n\n"
+    "Utilisez ce service pour les contenus dont vous êtes autorisé à télécharger une copie."
 )
 
 
@@ -81,6 +94,14 @@ async def run_worker(url: str, folder: Path) -> dict:
 
 
 async def request_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await request_media(update, context, mode="audio")
+
+
+async def request_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await request_media(update, context, mode="video")
+
+
+async def request_media(update: Update, context: ContextTypes.DEFAULT_TYPE, mode="auto"):
     message = update.effective_message
     user_id = update.effective_user.id
     if ALLOWED_USERS and user_id not in ALLOWED_USERS:
@@ -88,7 +109,7 @@ async def request_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     value = " ".join(context.args) if message.text.startswith("/") else message.text
     try:
-        request = parse_request(value)
+        kind, request = parse_media_request(value, mode)
     except UserError as exc:
         await message.reply_text(str(exc))
         return
@@ -102,25 +123,36 @@ async def request_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ACTIVE_USERS.add(user_id)
     status = None
     try:
-        status = await message.reply_text("Recherche, téléchargement et conversion en cours…")
-        with TemporaryDirectory(prefix="telegram-audio-") as temp:
+        status = await message.reply_text(
+            "Téléchargement et préparation de la vidéo en cours…" if kind == "video"
+            else "Recherche, téléchargement et conversion en cours…")
+        with TemporaryDirectory(prefix="telegram-media-") as temp:
             folder = Path(temp)
             info = await run_worker(request, folder)
-            audio = folder / "audio.mp3"
-            if not audio.is_file() or not 0 < audio.stat().st_size <= MAX_AUDIO_BYTES:
-                raise UserError("Le fichier audio est absent, vide ou trop volumineux.")
-            await status.edit_text("Envoi du MP3…")
+            media = folder / ("video.mp4" if kind == "video" else "audio.mp3")
+            limit = MAX_VIDEO_BYTES if kind == "video" else MAX_AUDIO_BYTES
+            if not media.is_file() or not 0 < media.stat().st_size <= limit:
+                raise UserError("Le fichier est absent, vide ou trop volumineux.")
+            await status.edit_text("Envoi de la vidéo…" if kind == "video" else "Envoi du MP3…")
             with ExitStack() as files:
-                stream = files.enter_context(audio.open("rb"))
+                stream = files.enter_context(media.open("rb"))
                 preview = folder / "thumbnail.jpg"
                 thumbnail = files.enter_context(preview.open("rb")) if preview.is_file() else None
-                await message.reply_audio(
-                    audio=stream, filename=audio_filename(info["title"]), title=info["title"],
-                    thumbnail=thumbnail,
-                    performer=info["performer"], duration=info["duration"],
-                    caption=f"{info['title']}\nSource : {info['source_url']}", write_timeout=180, read_timeout=180,
-                    connect_timeout=30)
+                if kind == "video":
+                    await message.reply_video(
+                        video=stream, filename=audio_filename(info["title"])[:-4] + ".mp4",
+                        thumbnail=thumbnail, duration=info["duration"],
+                        width=info["width"], height=info["height"], supports_streaming=True,
+                        do_quote=False, write_timeout=180, read_timeout=180, connect_timeout=30)
+                else:
+                    await message.reply_audio(
+                        audio=stream, filename=audio_filename(info["title"]), title=info["title"],
+                        thumbnail=thumbnail,
+                        performer=info["performer"], duration=info["duration"],
+                        caption=f"{info['title']}\nSource : {info['source_url']}", write_timeout=180, read_timeout=180,
+                        connect_timeout=30)
         await status.edit_text(
+            "Vidéo envoyée ✓" if kind == "video" else
             "Audio envoyé ✓ — pochette indisponible pour cette vidéo."
             if info.get("cover_embedded") is False else "Audio envoyé ✓")
     except asyncio.TimeoutError:
@@ -133,7 +165,7 @@ async def request_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         LOGGER.warning("Échec de communication Telegram ; état de livraison à vérifier.")
         if status:
             try:
-                await status.edit_text("Problème de connexion à Telegram. Vérifie si le MP3 est arrivé avant de réessayer.")
+                await status.edit_text("Problème de connexion à Telegram. Vérifie si le fichier est arrivé avant de réessayer.")
             except TelegramError:
                 pass
     finally:
@@ -169,7 +201,8 @@ def main():
     app.add_handler(CommandHandler(["start", "aide", "help"], welcome, filters=private))
     app.add_handler(CommandHandler("id", my_id, filters=private))
     app.add_handler(CommandHandler("audio", request_audio, filters=private))
-    app.add_handler(MessageHandler(private & filters.TEXT & ~filters.COMMAND, request_audio))
+    app.add_handler(CommandHandler("video", request_video, filters=private))
+    app.add_handler(MessageHandler(private & filters.TEXT & ~filters.COMMAND, request_media))
     app.add_error_handler(on_error)
     print("Bot démarré. Ouvre sa conversation Telegram. Ctrl+C pour arrêter.")
     app.run_polling(allowed_updates=["message"], drop_pending_updates=True)

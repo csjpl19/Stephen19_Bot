@@ -13,7 +13,7 @@ class BotTests(unittest.IsolatedAsyncioTestCase):
         self.status = SimpleNamespace(edit_text=AsyncMock())
         self.message = SimpleNamespace(
             text="https://youtu.be/abcdefghijk",
-            reply_text=AsyncMock(return_value=self.status), reply_audio=AsyncMock())
+            reply_text=AsyncMock(return_value=self.status), reply_audio=AsyncMock(), reply_video=AsyncMock())
         self.update = SimpleNamespace(effective_message=self.message, effective_user=SimpleNamespace(id=42))
         self.context = SimpleNamespace(args=[])
 
@@ -96,6 +96,41 @@ class BotTests(unittest.IsolatedAsyncioTestCase):
                           side_effect=UserError("Aucun résultat")) as worker:
             await bot.request_audio(self.update, self.context)
         self.assertEqual(worker.call_args.args[0], "Titre de chanson Artiste")
+
+    async def test_social_link_sends_video_without_platform_preview(self):
+        self.message.text = "https://www.instagram.com/reel/ABC/"
+        folders = []
+
+        async def fake_worker(url, folder):
+            folders.append(folder)
+            (folder / "video.mp4").write_bytes(b"video")
+            return {"kind": "video", "title": "Reel / été", "duration": 5, "width": 360, "height": 640}
+
+        async def receive(**kwargs):
+            self.assertEqual(kwargs["video"].read(), b"video")
+            self.assertEqual(kwargs["filename"], "Reel été.mp4")
+            self.assertTrue(kwargs["supports_streaming"])
+            self.assertFalse(kwargs["do_quote"])
+            self.assertNotIn("caption", kwargs)
+
+        self.message.reply_video.side_effect = receive
+        with patch.object(bot, "run_worker", side_effect=fake_worker):
+            await bot.request_media(self.update, self.context)
+        self.message.reply_video.assert_awaited_once()
+        self.message.reply_audio.assert_not_awaited()
+        self.status.edit_text.assert_awaited_with("Vidéo envoyée ✓")
+        self.assertFalse(folders[0].exists())
+        self.assertFalse(bot.ACTIVE_USERS)
+
+    async def test_video_command_and_worker_error_cleanup(self):
+        self.message.text = "/video https://www.facebook.com/reel/123/"
+        self.context.args = ["https://www.facebook.com/reel/123/"]
+        with patch.object(bot, "run_worker", new_callable=AsyncMock, side_effect=UserError("Vidéo inaccessible")) as worker:
+            await bot.request_video(self.update, self.context)
+        self.assertEqual(worker.call_args.args[0], self.context.args[0])
+        self.status.edit_text.assert_awaited_with("Vidéo inaccessible")
+        self.assertFalse(bot.ACTIVE_USERS)
+        self.message.reply_video.assert_not_awaited()
 
 
 if __name__ == "__main__":
