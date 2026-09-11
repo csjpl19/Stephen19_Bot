@@ -1,7 +1,7 @@
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 import bot
 from core import UserError
 
@@ -131,6 +131,17 @@ class BotTests(unittest.IsolatedAsyncioTestCase):
         self.status.edit_text.assert_awaited_with("Vidéo inaccessible")
         self.assertFalse(bot.ACTIVE_USERS)
         self.message.reply_video.assert_not_awaited()
+
+    def test_host_startup_limits_jobs_and_preserves_pending_messages(self):
+        app = MagicMock()
+        with patch.dict(bot.os.environ, {"TELEGRAM_BOT_TOKEN": "test-token", "MAX_JOBS": "1", "ALLOWED_USER_IDS": ""}), \
+                patch.object(bot.shutil, "which", return_value="installed"), \
+                patch.object(bot, "Application") as factory, patch.object(bot, "MAX_JOBS", 2):
+            factory.builder.return_value.token.return_value.concurrent_updates.return_value.build.return_value = app
+            bot.main()
+            self.assertEqual(bot.MAX_JOBS, 1)
+            app.run_polling.assert_called_once_with(
+                allowed_updates=["message"], drop_pending_updates=False, bootstrap_retries=5)
 
 
 if __name__ == "__main__":

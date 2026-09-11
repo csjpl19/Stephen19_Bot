@@ -24,6 +24,7 @@ Dans **Variables** du service :
 |---|---|
 | `TELEGRAM_BOT_TOKEN` | Le token BotFather du bot, saisi uniquement dans Railway. |
 | `ALLOWED_USER_IDS` | Facultatif : identifiants numériques séparés par des virgules. Vide = accès à tous en privé. |
+| `MAX_JOBS` | `1` pour l'essai limité à 1 Go de RAM ; `2` par défaut pour un serveur suffisamment dimensionné. |
 | `RAILWAY_DEPLOYMENT_OVERLAP_SECONDS` | `0` pour limiter le chevauchement des versions lors d'un déploiement. |
 | `RAILWAY_DEPLOYMENT_DRAINING_SECONDS` | `30` pour laisser à l'ancienne version le temps de s'arrêter. |
 
@@ -54,6 +55,11 @@ dépenses ; un plafond financier qui arrête le service interrompt aussi le bot.
 Les anciens fichiers `railway.json` et `railway.toml` ne sont plus le mécanisme
 recommandé pour les nouveaux services. Ce projet utilise le Dockerfile et les
 réglages du service. Il n'a pas besoin d'un SDK d'infrastructure supplémentaire.
+
+**Essai initial :** le service peut être testé avec les crédits disponibles. Le
+compte d'essai utilisé pour ce projet est limité à 1 Go de RAM et 2 vCPU, avec
+`On Failure` et 10 redémarrages maximum. Garder `MAX_JOBS=1`. Passer à Hobby et
+choisir `Always` avant l'expiration des crédits pour poursuivre l'hébergement.
 
 ## 4. Lancer et vérifier
 

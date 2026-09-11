@@ -118,7 +118,7 @@ async def request_media(update: Update, context: ContextTypes.DEFAULT_TYPE, mode
         await message.reply_text("Ta demande précédente est encore en cours.")
         return
     if len(ACTIVE_USERS) >= MAX_JOBS:
-        await message.reply_text("Le bot traite déjà deux demandes. Réessaie dans quelques instants.")
+        await message.reply_text("Le bot a atteint sa capacité de traitement. Réessaie dans quelques instants.")
         return
     ACTIVE_USERS.add(user_id)
     status = None
@@ -183,10 +183,17 @@ async def on_error(update, context):
 
 
 def main():
+    global MAX_JOBS
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
     token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
     if not token or token == "COLLER_ICI_LE_TOKEN_BOTFATHER":
         raise SystemExit("Renseigne TELEGRAM_BOT_TOKEN dans les variables de l'hébergeur ou dans le fichier .env local.")
+    try:
+        MAX_JOBS = int(os.getenv("MAX_JOBS", "2"))
+        if MAX_JOBS not in {1, 2}:
+            raise ValueError
+    except ValueError:
+        raise SystemExit("MAX_JOBS doit valoir 1 ou 2.") from None
     try:
         ALLOWED_USERS.update(int(x.strip()) for x in os.getenv("ALLOWED_USER_IDS", "").split(",") if x.strip())
     except ValueError:
