@@ -186,7 +186,7 @@ def main():
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
     token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
     if not token or token == "COLLER_ICI_LE_TOKEN_BOTFATHER":
-        raise SystemExit("Renseigne TELEGRAM_BOT_TOKEN dans le fichier .env.")
+        raise SystemExit("Renseigne TELEGRAM_BOT_TOKEN dans les variables de l'hébergeur ou dans le fichier .env local.")
     try:
         ALLOWED_USERS.update(int(x.strip()) for x in os.getenv("ALLOWED_USER_IDS", "").split(",") if x.strip())
     except ValueError:
@@ -205,7 +205,7 @@ def main():
     app.add_handler(MessageHandler(private & filters.TEXT & ~filters.COMMAND, request_media))
     app.add_error_handler(on_error)
     print("Bot démarré. Ouvre sa conversation Telegram. Ctrl+C pour arrêter.")
-    app.run_polling(allowed_updates=["message"], drop_pending_updates=True)
+    app.run_polling(allowed_updates=["message"], drop_pending_updates=False, bootstrap_retries=5)
 
 
 if __name__ == "__main__":

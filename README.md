@@ -1,5 +1,9 @@
 # Bot Telegram — Musique YouTube, Reels et vidéos sociales
 
+**Hébergement Railway :** voir [le guide de déploiement](RAILWAY.md).
+Le Dockerfile inclut Python, FFmpeg, Deno et les tests. Les variables secrètes
+sont configurées dans Railway ; aucun fichier `.env` n'est copié dans l'image.
+
 Projet Python prêt à configurer. L'utilisateur écrit le titre d'une musique, idéalement suivi du nom de l'artiste, dans une conversation privée avec le bot. Celui-ci recherche sur YouTube, sélectionne automatiquement le premier résultat, télécharge l'audio, le convertit en MP3 et l'envoie dans le lecteur musical Telegram. Les liens YouTube directs sont aussi acceptés.
 
 Le bot accepte également les liens publics de Reels et de vidéos Instagram, TikTok et Facebook. Il télécharge la vidéo et l'envoie en MP4 dans le lecteur Telegram, sans lien ni carte de plateforme dans sa réponse. Le choix est automatique : titre ou lien YouTube → MP3 ; lien Instagram, TikTok ou Facebook → MP4. La reconnaissance musicale à partir d'un enregistrement n'est pas intégrée.
@@ -153,6 +157,8 @@ Si la version stable échoue à cause d'un changement récent de YouTube, le pro
 - `bot.py` : messages Telegram, contrôle d'accès, concurrence et envoi du fichier.
 - `worker.py` : recherche YouTube, téléchargement, conversion, tags MP3 et pochettes dans un processus distinct.
 - `reels.py` : liens de partage, sélection des formats vidéo, téléchargement social et préparation des MP4.
+- `Dockerfile` et `.dockerignore` : image Linux et exclusion des fichiers privés de la construction.
+- `RAILWAY.md` : installation, variables et réglages pour le fonctionnement continu sur Railway.
 - `core.py` : validation des titres et des liens, noms de fichiers portables, limites.
 - `.env.example` : modèle de configuration.
 - `tests/` : tests locaux sans téléchargement réseau, dont vérification de vrais MP3 et pochettes avec FFmpeg/FFprobe (ces tests sont ignorés si les binaires manquent).

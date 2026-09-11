@@ -1,0 +1,11 @@
+# Seuls ces fichiers sont transmis au constructeur Docker.
+**
+!Dockerfile
+!.dockerignore
+!requirements.txt
+!bot.py
+!core.py
+!worker.py
+!reels.py
+!tests/
+!tests/test_*.py
